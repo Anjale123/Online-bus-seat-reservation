@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Online Bus Seat Reservation - Single File</title>
+  <style>
+    :root{--seat-size:44px;--gap:10px;--primary:#2b6cb0;--danger:#e53e3e;--muted:#6b7280}
+    body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; padding:24px; background:#f7fafc; color:#0f172a}
+    .container{max-width:980px;margin:0 auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 6px 18px rgba(15,23,42,0.06)}
+    h1{margin:0 0 12px;font-size:20px}
+    .top{display:flex;gap:20px;align-items:center;justify-content:space-between}
+    .meta{font-size:13px;color:var(--muted)}
+    .screen{background:linear-gradient(180deg,#cfe3f9,#eef6ff);padding:8px;border-radius:6px;text-align:center;margin:14px 0;color:#044b84;font-weight:600}
+    .seats{display:grid;grid-template-columns:repeat(4, 1fr);gap:var(--gap);justify-items:center}
+    .seat{width:var(--seat-size);height:var(--seat-size);border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;border:2px solid transparent}
+    .seat.available{background:#e6f0ff;color:#044b84;border-color:#bcd7ff}
+    .seat.selected{background:#2b6cb0;color:white;box-shadow:0 2px 8px rgba(43,108,176,0.25)}
+    .seat.booked{background:#fef2f2;color:var(--danger);border-color:#fecaca;cursor:default}
+    .legend{display:flex;gap:10px;align-items:center;margin-top:10px}
+    .legend .item{display:flex;gap:8px;align-items:center;font-size:13px}
+    .legend .box{width:18px;height:18px;border-radius:4px}
+    .form{display:grid;grid-template-columns:1fr 220px;gap:16px;margin-top:18px}
+    .card{background:#fff;padding:12px;border-radius:8px;border:1px solid #e6eef6}
+    label{display:block;font-size:13px;margin-bottom:6px;color:var(--muted)}
+    input[type="text"], input[type="tel"], select{width:100%;padding:8px;border-radius:6px;border:1px solid #dbeafe;font-size:14px}
+    button{background:var(--primary);color:white;padding:10px 12px;border-radius:8px;border:0;cursor:pointer;font-weight:600}
+    button.secondary{background:#fff;color:var(--primary);border:1px solid #cfe3f9}
+    .sidebar{display:flex;flex-direction:column;gap:10px}
+    .booked-list{max-height:220px;overflow:auto;padding:8px;border-radius:6px;border:1px dashed #e6eef6}
+    .ticket{background:#f0f9ff;padding:10px;border-radius:8px;border:1px solid #dbeafe;margin-top:8px}
+    small{color:var(--muted)}
+    .controls{display:flex;gap:8px;align-items:center}
+    @media(max-width:820px){.form{grid-template-columns:1fr;}.seats{grid-template-columns:repeat(4, 1fr);}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="top">
+      <div>
+        <h1>Online Bus Seat Reservation System</h1>
+      </div>
+      <div class="controls">
+        <button id="reset">Reset All</button>
+        <button id="export" class="secondary">Export Data</button>
+      </div>
+    </div>
+
+    <div class="screen">FRONT / DRIVER</div>
+
+    <div style="display:flex;gap:20px;align-items:flex-start">
+      <div style="flex:1">
+        <div class="seats card" id="seats"></div>
+        <div class="legend">
+          <div class="item"><span class="box" style="background:#e6f0ff;border:1px solid #bcd7ff"></span> Available</div>
+          <div class="item"><span class="box" style="background:#2b6cb0"></span> Selected</div>
+          <div class="item"><span class="box" style="background:#fef2f2;border:1px solid #fecaca"></span> Booked</div>
+        </div>
+      </div>
+
+      <div style="width:320px" class="sidebar">
+        <div class="card">
+          <label for="route">Route</label>
+          <select id="route">
+            <option value="A">Colombo ➜ Kandy</option>
+            <option value="B">Colombo ➜ Jaffna</option>
+            <option value="C">Colombo ➜ Galle</option>
+          </select>
+
+          <label for="date">Date</label>
+          <input type="text" id="date" placeholder="YYYY-MM-DD" />
+
+          <label for="name">Passenger Name</label>
+          <input type="text" id="name" placeholder="Full name" />
+
+          <label for="phone">Phone</label>
+          <input type="tel" id="phone" placeholder="e.g. +94xxxxxxxxx" />
+
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button id="book">Book Selected</button>
+            <button id="clear" class="secondary">Clear Selection</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center"><strong>Booked Tickets</strong><small id="count">0</small></div>
+          <div class="booked-list" id="bookedList">
+            <small>No bookings yet</small>
+          </div>
+          <div id="ticketArea"></div>
+        </div>
+
+        
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Configuration: rows and seats per row (4 columns will be displayed as layout)
+    const ROWS = 10; // number of rows
+    const COLS = 4;  // seats per row (2 left, aisle, 2 right)
+
+    // State
+    let selected = new Set();
+    let bookings = loadBookings();
+
+    const seatsContainer = document.getElementById('seats');
+    const bookedList = document.getElementById('bookedList');
+    const countEl = document.getElementById('count');
+
+    // Create seat ids like 1A,1B,1C,1D ...
+    function seatId(row, col){
+      const letters = ['A','B','C','D','E','F'];
+      return `${row}${letters[col] || String.fromCharCode(65+col)}`;
+    }
+
+    function renderSeats(){
+      seatsContainer.innerHTML = '';
+      for(let r=1;r<=ROWS;r++){
+        for(let c=0;c<COLS;c++){
+          const id = seatId(r,c);
+          const el = document.createElement('div');
+          el.className = 'seat';
+          el.dataset.seat = id;
+          el.textContent = id;
+
+          if(isBooked(id)) el.classList.add('booked'); else el.classList.add('available');
+          if(selected.has(id)) el.classList.add('selected');
+
+          // Visual: add a small gap to simulate aisle between mid columns
+          if(c===1){ el.style.marginRight = '22px'; }
+
+          el.addEventListener('click', () => onSeatClick(id, el));
+          seatsContainer.appendChild(el);
+        }
+      }
+    }
+
+    function onSeatClick(id, el){
+      if(isBooked(id)){ alert('Seat already booked.'); return; }
+      if(selected.has(id)){
+        selected.delete(id);
+        el.classList.remove('selected');
+      } else {
+        selected.add(id);
+        el.classList.add('selected');
+      }
+    }
+
+    function isBooked(seat){
+      // Check bookings for current route+date
+      const key = routeDateKey();
+      if(!bookings[key]) return false;
+      return bookings[key].some(b=>b.seat===seat);
+    }
+
+    function routeDateKey(){
+      const route = document.getElementById('route').value;
+      const date = document.getElementById('date').value || 'unspecified';
+      return `${route}::${date}`;
+    }
+
+    function renderBookedList(){
+      const key = routeDateKey();
+      const list = bookings[key] || [];
+      countEl.textContent = list.length;
+      if(list.length===0){ bookedList.innerHTML = '<small>No bookings yet</small>'; return; }
+      bookedList.innerHTML = '';
+      list.forEach(b => {
+        const row = document.createElement('div');
+        row.style.display='flex'; row.style.justifyContent='space-between'; row.style.padding='6px 0';
+        row.innerHTML = `<div><strong>${b.seat}</strong> — ${escapeHtml(b.name)}<br><small>${b.phone}</small></div><div style="text-align:right"><small>#${b.ticket}</small><br><button data-ticket="${b.ticket}">Cancel</button></div>`;
+        const btn = row.querySelector('button');
+        btn.addEventListener('click', ()=>cancelBooking(b.ticket));
+        bookedList.appendChild(row);
+      });
+    }
+
+    function generateTicketId(){
+      return Math.random().toString(36).slice(2,9).toUpperCase();
+    }
+
+    function bookSelected(){
+      const name = document.getElementById('name').value.trim();
+      const phone = document.getElementById('phone').value.trim();
+      const date = document.getElementById('date').value.trim();
+      if(selected.size===0){ alert('Select at least one seat.'); return; }
+      if(!name){ alert('Enter passenger name.'); return; }
+      if(!phone){ alert('Enter phone number.'); return; }
+      const key = routeDateKey();
+      if(!bookings[key]) bookings[key]=[];
+
+      const newBookings = [];
+      for(const seat of selected){
+        if(isBooked(seat)){
+          alert(`${seat} was just booked by someone else. It will be skipped.`);
+          continue;
+        }
+        const ticket = generateTicketId();
+        const record = {seat, name, phone, ticket, created: new Date().toISOString()};
+        bookings[key].push(record);
+        newBookings.push(record);
+      }
+
+      saveBookings();
+      selected.clear();
+      renderSeats();
+      renderBookedList();
+
+      if(newBookings.length>0) showTicket(newBookings[0]);
+    }
+
+    function showTicket(ticketObj){
+      const area = document.getElementById('ticketArea');
+      area.innerHTML = `<div class="ticket"><strong>Ticket #${ticketObj.ticket}</strong><br>Seat: ${ticketObj.seat}<br>${escapeHtml(ticketObj.name)}<br>${escapeHtml(ticketObj.phone)}<br><small>${new Date(ticketObj.created).toLocaleString()}</small><br><div style="margin-top:8px"><button id='printTicket'>Print</button></div></div>`;
+      document.getElementById('printTicket').addEventListener('click', ()=>{
+        const w = window.open();
+        w.document.write(`<pre style="font-size:18px">Ticket #${ticketObj.ticket}\nSeat: ${ticketObj.seat}\nName: ${escapeHtml(ticketObj.name)}\nPhone: ${escapeHtml(ticketObj.phone)}\nDate: ${document.getElementById('date').value}</pre>`);
+        w.print();
+      });
+    }
+
+    function cancelBooking(ticketId){
+      if(!confirm('Cancel booking ' + ticketId + '?')) return;
+      const key = routeDateKey();
+      if(!bookings[key]) return;
+      bookings[key] = bookings[key].filter(b=>b.ticket!==ticketId);
+      saveBookings();
+      renderSeats();
+      renderBookedList();
+      alert('Cancelled.');
+    }
+
+    function saveBookings(){
+      localStorage.setItem('bus_bookings_v1', JSON.stringify(bookings));
+    }
+    function loadBookings(){
+      try{ return JSON.parse(localStorage.getItem('bus_bookings_v1')) || {}; }catch(e){ return {}; }
+    }
+
+    function resetAll(){
+      if(!confirm('This will clear all bookings stored in your browser. Continue?')) return;
+      bookings = {};
+      saveBookings();
+      renderSeats();
+      renderBookedList();
+    }
+
+    function exportData(){
+      const data = JSON.stringify(bookings, null, 2);
+      const blob = new Blob([data], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'bookings.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function escapeHtml(s){ return s.replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+
+    // Event wiring
+    document.getElementById('book').addEventListener('click', bookSelected);
+    document.getElementById('clear').addEventListener('click', ()=>{ selected.clear(); renderSeats(); });
+    document.getElementById('reset').addEventListener('click', resetAll);
+    document.getElementById('export').addEventListener('click', exportData);
+    document.getElementById('route').addEventListener('change', ()=>{ renderSeats(); renderBookedList(); });
+    document.getElementById('date').addEventListener('change', ()=>{ renderSeats(); renderBookedList(); });
+
+    // initial
+    renderSeats();
+    renderBookedList();
+
+  </script>
+</body>
+</html>
